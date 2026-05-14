@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sistema de Subhastes — Simulació Concurrent</title>
+  <style>
+    :root {
+      --bg:        #ffffff;
+      --surface:   #f6f7f9;
+      --border:    #e2e4e9;
+      --text:      #111318;
+      --muted:     #6b7280;
+      --accent:    #2563eb;
+      --green:     #16a34a;
+      --amber:     #b45309;
+      --red:       #dc2626;
+      --closed:    #9ca3af;
+      --c1: #2563eb; --c2: #7c3aed; --c3: #059669; --c4: #c2410c;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 24px 28px 40px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    .hd { margin-bottom: 20px; }
+    .hd h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 2px; }
+    .hd p  { color: var(--muted); font-size: 0.8rem; margin-bottom: 14px; }
+    .tag  {
+      display: inline-block;
+      font-size: 0.68rem; font-weight: 600;
+      padding: 2px 7px; border-radius: 4px;
+      border: 1px solid var(--border);
+      color: var(--muted); margin-right: 6px;
+    }
+    .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    button {
+      padding: 6px 14px; border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 0.8rem; font-weight: 500;
+      cursor: pointer; transition: opacity .15s;
+    }
+    button:hover { opacity: .75; }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    .speed-ctl { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+    input[type=range] { width: 72px; accent-color: var(--accent); cursor: pointer; }
+
+    /* ── Section label ── */
+    .lbl {
+      font-size: 0.65rem; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+    }
+
+    /* ── Auctions grid ── */
+    .auctions { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 12px; }
+    .acard {
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 12px 10px; position: relative;
+      transition: opacity .3s;
+    }
+    .acard.closed { opacity: .6; }
+    .acard-id   { font-size: .68rem; font-weight: 700; color: var(--muted); margin-bottom: 2px; }
+    .acard-art  { font-size: .8rem; font-weight: 600; line-height: 1.25; margin-bottom: 9px; min-height: 2em; }
+    .acard-prog { height: 3px; background: var(--border); border-radius: 2px; margin-bottom: 8px; overflow: hidden; }
+    .acard-progbar { height: 100%; border-radius: 2px; width: 100%; transition: width .25s linear; }
+    .acard-price {
+      font-size: 1.35rem; font-weight: 800; margin-bottom: 2px;
+      transition: color .25s, transform .2s;
+    }
+    .acard-price.flash { color: var(--green); transform: scale(1.08); }
+    .acard-winner { font-size: .72rem; color: var(--muted); }
+    .badge {
+      position: absolute; top: 10px; right: 10px;
+      font-size: .6rem; font-weight: 700; padding: 2px 6px;
+      border-radius: 4px; letter-spacing: .04em;
+    }
+    .badge.open   { background: #eff6ff; color: var(--accent); border: 1px solid #bfdbfe; }
+    .badge.closed { background: var(--surface); color: var(--closed); border: 1px solid var(--border); }
+
+    /* ── Middle row ── */
+    .mid { display: grid; grid-template-columns: 1fr 200px; gap: 10px; margin-bottom: 12px; }
+    .panel { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+    .queue-pills { display: flex; flex-wrap: wrap; gap: 5px; min-height: 28px; align-items: center; }
+    .pill {
+      padding: 3px 8px; border-radius: 4px; font-size: .7rem; font-weight: 600;
+      color: #fff; animation: popIn .18s ease;
+    }
+    @keyframes popIn { from { opacity:0; transform: scale(.8); } to { opacity:1; transform: scale(1); } }
+    .q-empty { font-size: .75rem; color: var(--muted); }
+
+    .worker { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+    .worker:last-child { margin-bottom: 0; }
+    .wdot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--border); flex-shrink: 0; transition: background .2s;
+    }
+    .wdot.on { background: var(--green); animation: blink 1.1s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+    .wtxt { font-size: .73rem; color: var(--muted); }
+
+    /* ── Monitor ── */
+    .monitor { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+    .alert-list { max-height: 64px; overflow-y: auto; }
+    .alert-row {
+      font-size: .76rem; color: var(--amber); font-weight: 500;
+      padding: 2px 0; animation: fadeIn .3s ease;
+    }
+    @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+
+    /* ── Timeline ── */
+    .timeline { border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+    .trow { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+    .trow:last-of-type { margin-bottom: 0; }
+    .tlbl { width: 36px; font-size: .7rem; font-weight: 700; color: var(--muted); }
+    .tbar-bg {
+      flex: 1; height: 20px; background: var(--surface);
+      border-radius: 4px; overflow: hidden; position: relative;
+    }
+    .tbar-fill {
+      height: 100%; border-radius: 4px; width: 0%;
+      transition: width .25s linear; position: relative;
+    }
+    .tbar-txt {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      font-size: .62rem; font-weight: 700; color: #fff; white-space: nowrap;
+    }
+    .tdur { width: 36px; text-align: right; font-size: .7rem; color: var(--muted); }
+
+    .stats {
+      display: flex; gap: 28px; margin-top: 14px;
+      padding-top: 14px; border-top: 1px solid var(--border);
+    }
+    .stat strong { display: block; font-size: 1.15rem; font-weight: 800; }
+    .stat span { font-size: .7rem; color: var(--muted); }
+    .assert-ok {
+      margin-top: 10px; padding: 7px 12px;
+      background: #f0fdf4; border: 1px solid #bbf7d0;
+      border-radius: 6px; font-size: .78rem; color: var(--green); font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+<div class="hd">
+  <h1>Sistema de Subhastes en Línia — Simulació Concurrent</h1>
+  <p>Visualització del comportament asyncio en Python</p>
+  <span class="tag">Cap. 12 · asyncio.Queue</span>
+  <span class="tag">Cap. 11 · Lock · Event · Condition</span>
+  <span class="tag">Cap. 4 · gather</span>
+  <div class="controls">
+    <button class="primary" id="btn-start" onclick="iniciar()">Iniciar simulació</button>
+    <button id="btn-reset" onclick="reiniciar()">Reiniciar</button>
+    <div class="speed-ctl">
+      <span>Velocitat</span>
+      <input type="range" id="speed" min="1" max="5" value="2"
+             oninput="document.getElementById('slbl').textContent='×'+this.value">
+      <span id="slbl">×2</span>
+    </div>
+  </div>
+</div>
+
+<!-- Auction cards -->
+<div class="lbl">Subhastes concurrents</div>
+<div class="auctions" id="auctions"></div>
+
+<!-- Queue + Workers -->
+<div class="mid">
+  <div class="panel">
+    <div class="lbl">asyncio.Queue — Ofertes en espera</div>
+    <div class="queue-pills" id="qpills"><span class="q-empty">Cua buida</span></div>
+  </div>
+  <div class="panel">
+    <div class="lbl">Workers (×3)</div>
+    <div id="workers"></div>
+  </div>
+</div>
+
+<!-- Monitor -->
+<div class="monitor">
+  <div class="lbl">Monitor asyncio.Condition — Alertes preu ≥ 500 €</div>
+  <div class="alert-list" id="alerts"><span class="q-empty">Cap alerta</span></div>
+</div>
+
+<!-- Timeline -->
+<div class="timeline">
+  <div class="lbl">Línia de temps concurrent</div>
+  <div id="trows"></div>
+  <div class="stats" id="stats" style="display:none">
+    <div class="stat"><strong id="st-conc">—</strong><span>Temps concurrent (simulat)</span></div>
+    <div class="stat"><strong id="st-seq">6.50s</strong><span>Temps seqüencial estimat</span></div>
+    <div class="stat"><strong id="st-sp">—</strong><span>Speedup</span></div>
+  </div>
+  <div class="assert-ok" id="assert-ok" style="display:none"></div>
+</div>
+
+<script>
+// ─── Configuration ───────────────────────────────────────────────────────────
+const CFG = [
+  { id:'S001', art:'Pintura de Joan Miró',            ini:300, dur:1.5, col:'var(--c1)' },
+  { id:'S002', art:'Escultura modernista',             ini:150, dur:2.0, col:'var(--c2)' },
+  { id:'S003', art:'Fotografia de Cartier-Bresson',    ini:200, dur:1.8, col:'var(--c3)' },
+  { id:'S004', art:'"Tirant lo Blanc" (1490)',         ini:250, dur:1.2, col:'var(--c4)' },
+];
+const BIDDERS  = ['Anna','Bernat','Carles','Diana','Eduard','Fàtima'];
+const LLINDAR  = 500;
+const N_WORK   = 3;
+const DUR_SEQ  = CFG.reduce((s,a) => s+a.dur, 0); // 6.5s
+const DUR_MAX  = Math.max(...CFG.map(a=>a.dur));    // 2.0s
+
+// ─── Simulation primitives ───────────────────────────────────────────────────
+
+// Mirror of asyncio.Queue
+class AsyncQueue {
+  constructor() { this.items=[]; this.waiters=[]; }
+  put(item) {
+    this.waiters.length ? this.waiters.shift()(item) : this.items.push(item);
+    renderQueue();
+  }
+  get(sig) {
+    if (this.items.length) { const v=this.items.shift(); renderQueue(); return Promise.resolve(v); }
+    return new Promise((res,rej) => {
+      const e={res}; this.waiters.push(e);
+      sig?.addEventListener('abort', ()=>{ const i=this.waiters.indexOf(e); if(i>=0) this.waiters.splice(i,1); rej(new DOMException('abort','AbortError')); });
+    });
+  }
+}
+
+// Mirror of asyncio.Condition
+class AsyncCondition {
+  constructor() { this.ws=[]; }
+  notify(v) { const ws=[...this.ws]; this.ws=[]; ws.forEach(({res})=>res(v)); }
+  wait(sig) {
+    return new Promise((res,rej) => {
+      const e={res}; this.ws.push(e);
+      sig?.addEventListener('abort', ()=>{ const i=this.ws.indexOf(e); if(i>=0) this.ws.splice(i,1); rej(new DOMException('abort','AbortError')); });
+    });
+  }
+}
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let S={}, Q, Cond, ctrl, running=false, t0;
+
+function rand(a,b) { return Math.random()*(b-a)+a; }
+function pick(arr)  { return arr[Math.floor(Math.random()*arr.length)]; }
+function sleep(secs) {
+  const scale = 6 - parseInt(document.getElementById('speed').value); // 1→5x, 5→1x
+  return new Promise(r=>setTimeout(r, secs*1000*scale));
+}
+function simNow() { return (Date.now()-t0)/1000 * (6 - parseInt(document.getElementById('speed').value)); }
+
+// ─── DOM bootstrap ───────────────────────────────────────────────────────────
+function buildDOM() {
+  // Auction cards
+  document.getElementById('auctions').innerHTML = CFG.map(c=>`
+    <div class="acard" id="ac-${c.id}">
+      <div class="acard-id">${c.id}</div>
+      <span class="badge open" id="badge-${c.id}">OBERTA</span>
+      <div class="acard-art">${c.art}</div>
+      <div class="acard-prog"><div class="acard-progbar" id="pb-${c.id}" style="background:${c.col}"></div></div>
+      <div class="acard-price" id="pr-${c.id}">${c.ini.toFixed(2)}€</div>
+      <div class="acard-winner" id="wn-${c.id}">Sense ofertes</div>
+    </div>`).join('');
+
+  // Workers
+  document.getElementById('workers').innerHTML = Array.from({length:N_WORK},(_,i)=>`
+    <div class="worker">
+      <div class="wdot" id="wd-${i}"></div>
+      <span class="wtxt" id="wt-${i}">Worker ${i} — inactiu</span>
+    </div>`).join('');
+
+  // Timeline rows
+  document.getElementById('trows').innerHTML = CFG.map(c=>`
+    <div class="trow">
+      <div class="tlbl">${c.id}</div>
+      <div class="tbar-bg">
+        <div class="tbar-fill" id="tf-${c.id}" style="background:${c.col}">
+          <span class="tbar-txt" id="tt-${c.id}"></span>
+        </div>
+      </div>
+      <div class="tdur">${c.dur}s</div>
+    </div>`).join('');
+
+  // Reset panels
+  document.getElementById('alerts').innerHTML = '<span class="q-empty">Cap alerta</span>';
+  document.getElementById('stats').style.display = 'none';
+  document.getElementById('assert-ok').style.display = 'none';
+}
+
+// ─── State helpers ───────────────────────────────────────────────────────────
+function initState() {
+  S={};
+  CFG.forEach(c=>{ S[c.id]={ ...c, preu:c.ini, winner:null, nOfertes:0, closed:false }; });
+  Q    = new AsyncQueue();
+  Cond = new AsyncCondition();
+}
+
+// ─── DOM updaters ─────────────────────────────────────────────────────────────
+function renderQueue() {
+  const el = document.getElementById('qpills');
+  if (!Q.items.length) { el.innerHTML='<span class="q-empty">Cua buida</span>'; return; }
+  el.innerHTML = Q.items.slice(0,14).map(it=>{
+    const cfg = CFG.find(c=>c.id===it.id);
+    return `<span class="pill" style="background:${cfg.col}">${it.id} ${it.preu.toFixed(0)}€</span>`;
+  }).join('');
+}
+
+function flashPrice(id) {
+  const el = document.getElementById(`pr-${id}`);
+  el.classList.add('flash');
+  setTimeout(()=>el.classList.remove('flash'), 500);
+}
+
+function updateCard(id) {
+  const a=S[id];
+  document.getElementById(`pr-${id}`).textContent = a.preu.toFixed(2)+'€';
+  document.getElementById(`wn-${id}`).textContent = a.winner
+    ? `Guanyador: ${a.winner}  (${a.nOfertes} ofertes)`
+    : 'Sense ofertes';
+  if (a.closed) {
+    document.getElementById(`badge-${id}`).className='badge closed';
+    document.getElementById(`badge-${id}`).textContent='TANCADA';
+    document.getElementById(`ac-${id}`).classList.add('closed');
+  }
+}
+
+function setWorker(i, active, txt) {
+  document.getElementById(`wd-${i}`).className = 'wdot'+(active?' on':'');
+  document.getElementById(`wt-${i}`).textContent = txt;
+}
+
+function addAlert(txt) {
+  const el=document.getElementById('alerts');
+  const empty=el.querySelector('.q-empty');
+  if(empty) empty.remove();
+  const d=document.createElement('div');
+  d.className='alert-row';
+  d.textContent='⚡ '+txt;
+  el.insertBefore(d,el.firstChild);
+}
+
+// ─── Simulation coroutines ────────────────────────────────────────────────────
+
+// Mirror of executar_subhasta()
+async function executarSubhasta(cfg, sig) {
+  const { id, dur } = cfg;
+  const t = Date.now();
+  // Live progress bar update
+  const iv = setInterval(()=>{
+    if (sig.aborted) { clearInterval(iv); return; }
+    const elapsed = (Date.now()-t)/1000;
+    const scale = 6 - parseInt(document.getElementById('speed').value);
+    const simElapsed = elapsed / scale * (6 - parseInt(document.getElementById('speed').value)); // = elapsed (real s) * speed
+    const pct = Math.min(100, elapsed / (dur * scale) * 100);
+    document.getElementById(`pb-${id}`).style.width = (100-pct)+'%';
+    // timeline
+    const tPct = Math.min(100, elapsed / (DUR_MAX * scale) * 100);
+    document.getElementById(`tf-${id}`).style.width = tPct+'%';
+  }, 80);
+
+  await sleep(dur);
+  clearInterval(iv);
+  if (sig.aborted) return;
+
+  S[id].closed = true;
+  document.getElementById(`pb-${id}`).style.width = '0%';
+  document.getElementById(`tf-${id}`).style.width = (dur/DUR_MAX*100)+'%';
+  document.getElementById(`tt-${id}`).textContent = dur+'s ✓';
+  updateCard(id);
+}
+
+// Mirror of processar_ofertes()
+async function processarOfertes(wid, sig) {
+  try {
+    while (!sig.aborted) {
+      const it = await Q.get(sig);
+      if (sig.aborted) break;
+      const a = S[it.id];
+      if (!a) continue;
+
+      setWorker(wid, true, `Worker ${wid} → ${it.id}  (${it.preu.toFixed(0)}€)`);
+      await sleep(0.04);
+      if (sig.aborted) { setWorker(wid,false,`Worker ${wid} — aturat`); break; }
+
+      if (!a.closed && it.preu > a.preu) {
+        a.preu   = it.preu;
+        a.winner = it.postor;
+        a.nOfertes++;
+        flashPrice(it.id);
+        updateCard(it.id);
+        if (it.preu >= LLINDAR) {
+          Cond.notify(it);
+          addAlert(`${it.postor} ha oferit ${it.preu.toFixed(2)}€ a la subhasta '${it.id}'`);
+        }
+      }
+      setWorker(wid, false, `Worker ${wid} — inactiu`);
+    }
+  } catch(e) { if(e.name!=='AbortError') throw e; }
+  setWorker(wid, false, `Worker ${wid} — aturat`);
+}
+
+// Mirror of simular_postors() with gather pattern
+async function simularPostors(sig) {
+  try {
+    while (!sig.aborted) {
+      // asyncio.gather equivalent — enqueue all auctions' bids at once
+      CFG.forEach(c=>{
+        if (!S[c.id].closed) {
+          Q.put({ id:c.id, postor:pick(BIDDERS), preu:rand(50,950) });
+        }
+      });
+      await sleep(0.35);
+    }
+  } catch(e) { if(e.name!=='AbortError') throw e; }
+}
+
+// Mirror of monitor_alertes_preu()
+async function monitorAlertes(sig) {
+  try {
+    while (!sig.aborted) {
+      await Cond.wait(sig); // asyncio.Condition.wait()
+    }
+  } catch(e) { if(e.name!=='AbortError') throw e; }
+}
+
+// ─── main() equivalent ───────────────────────────────────────────────────────
+async function main() {
+  ctrl = new AbortController();
+  const sig = ctrl.signal;
+  t0 = Date.now();
+
+  // Start all auctions concurrently — asyncio.gather equivalent
+  const auctionTasks = CFG.map(c => executarSubhasta(c, sig));
+
+  // Start workers — asyncio.create_task × 3
+  const workerTasks = Array.from({length:N_WORK},(_,i)=>processarOfertes(i, sig));
+
+  // Start bidder and monitor
+  simularPostors(sig);
+  monitorAlertes(sig);
+
+  // await asyncio.gather(*tasques_subhastes)
+  await Promise.all(auctionTasks);
+
+  // Stop everything
+  ctrl.abort();
+  await Promise.all(workerTasks);
+
+  // ── Show results ──
+  const scale = 6 - parseInt(document.getElementById('speed').value);
+  const tempsReal = (Date.now()-t0)/1000;
+  const tempsConc = (tempsReal * scale).toFixed(2); // simulated time
+  const speedup   = (DUR_SEQ / parseFloat(tempsConc)).toFixed(1);
+
+  document.getElementById('stats').style.display = 'flex';
+  document.getElementById('st-conc').textContent = tempsConc+'s';
+  document.getElementById('st-sp').textContent   = speedup+'×';
+
+  if (parseFloat(tempsConc) < DUR_MAX * 1.5) {
+    const ok = document.getElementById('assert-ok');
+    ok.style.display = 'block';
+    ok.textContent   = `✓ Assert superat: ${tempsConc}s < ${(DUR_MAX*1.5).toFixed(2)}s  `
+                     + `(temps_max_subhasta × 1.5)  —  ${speedup}× més ràpid que seqüencial`;
+  }
+
+  running = false;
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-start').textContent = 'Simulació completada';
+}
+
+// ─── Controls ─────────────────────────────────────────────────────────────────
+function iniciar() {
+  if (running) return;
+  running = true;
+  document.getElementById('btn-start').disabled = true;
+  initState();
+  buildDOM();
+  main();
+}
+
+function reiniciar() {
+  ctrl?.abort();
+  running = false;
+  initState();
+  buildDOM();
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-start').textContent = 'Iniciar simulació';
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+initState();
+buildDOM();
+</script>
+</body>
+</html>
