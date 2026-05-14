@@ -108,6 +108,12 @@
     .wdot.on { background: var(--green); animation: blink 1.1s infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
     .wtxt { font-size: .73rem; color: var(--muted); }
+    .wcount {
+      margin-left: auto;
+      font-size: .68rem;
+      font-weight: 700;
+      color: var(--text);
+    }
 
     /* ── Monitor ── */
     .monitor { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
@@ -249,13 +255,16 @@ class AsyncCondition {
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
-let S={}, Q, Cond, ctrl, running=false, t0;
+let S={}, Q, Cond, ctrl, running=false, t0, workerStats=[];
 
 function rand(a,b) { return Math.random()*(b-a)+a; }
 function pick(arr)  { return arr[Math.floor(Math.random()*arr.length)]; }
 function sleep(secs) {
   const scale = 6 - parseInt(document.getElementById('speed').value); // 1→5x, 5→1x
   return new Promise(r=>setTimeout(r, secs*1000*scale));
+}
+function pausaVisual(ms) {
+  return new Promise(r=>setTimeout(r, ms));
 }
 function simNow() { return (Date.now()-t0)/1000 * (6 - parseInt(document.getElementById('speed').value)); }
 
@@ -277,6 +286,7 @@ function buildDOM() {
     <div class="worker">
       <div class="wdot" id="wd-${i}"></div>
       <span class="wtxt" id="wt-${i}">Worker ${i} — inactiu</span>
+      <span class="wcount" id="wc-${i}">0</span>
     </div>`).join('');
 
   // Timeline rows
@@ -303,6 +313,7 @@ function initState() {
   CFG.forEach(c=>{ S[c.id]={ ...c, preu:c.ini, winner:null, nOfertes:0, closed:false }; });
   Q    = new AsyncQueue();
   Cond = new AsyncCondition();
+  workerStats = Array.from({length:N_WORK}, () => 0);
 }
 
 // ─── DOM updaters ─────────────────────────────────────────────────────────────
@@ -337,6 +348,7 @@ function updateCard(id) {
 function setWorker(i, active, txt) {
   document.getElementById(`wd-${i}`).className = 'wdot'+(active?' on':'');
   document.getElementById(`wt-${i}`).textContent = txt;
+  document.getElementById(`wc-${i}`).textContent = workerStats[i];
 }
 
 function addAlert(txt) {
@@ -389,7 +401,8 @@ async function processarOfertes(wid, sig) {
       if (!a) continue;
 
       setWorker(wid, true, `Worker ${wid} → ${it.id}  (${it.preu.toFixed(0)}€)`);
-      await sleep(0.04);
+      // Pausa purament visual: fa visible que els tres workers poden treballar alhora.
+      await pausaVisual(520);
       if (sig.aborted) { setWorker(wid,false,`Worker ${wid} — aturat`); break; }
 
       if (!a.closed && it.preu > a.preu) {
@@ -403,7 +416,10 @@ async function processarOfertes(wid, sig) {
           addAlert(`${it.postor} ha oferit ${it.preu.toFixed(2)}€ a la subhasta '${it.id}'`);
         }
       }
+      workerStats[wid]++;
       setWorker(wid, false, `Worker ${wid} — inactiu`);
+      // Cedeix el torn perquè els altres workers també puguin agafar feina de la cua.
+      await pausaVisual(80);
     }
   } catch(e) { if(e.name!=='AbortError') throw e; }
   setWorker(wid, false, `Worker ${wid} — aturat`);
